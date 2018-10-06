@@ -2,6 +2,7 @@ const fs = require('fs');
 const cheerio = require('cheerio');
 const request = require('request');
 const async = require('async');
+const mysql  = require('mysql');  
 
 // 通过shell命令获取分页的起始位置与结束位置索引
 let pageArray = [];
@@ -13,6 +14,9 @@ for (let i = startIndex; i <= endIndex; i++) {
 }
 
 let topicArray = [];
+
+ 
+
 function saveAllPage(callback) {
   let pageIndex = startIndex;
   async.map(pageArray, (url, cb) => {
@@ -29,34 +33,69 @@ function saveAllPage(callback) {
       let $ = cheerio.load(res.body.toString());
       $('.zu-itemmod').each((i, e) => {
         let topicObj = {};
-        let title = $(e).find('h3').find('a').attr('title'); // 房屋的标题信息
-        let topicUrl = $(e).find('h3').find('a').attr('href'); // 房屋的详细信息
-        let addressStr = $(e).find('address').text().trim().replace(/\n/, '');
-        let location = addressStr.match(/(^[^ ]*)|( .*$)/g)[0].trim();
-        let area = addressStr.match(/(^[^ ]*)|( .*$)/g)[1].trim();
-        let price = $(e).find('.zu-side').find('strong').text();
+        let info = $(e).find('.details-item.tag').text().trim().replace(//, '|').split('|'); // 获取房屋的基本信息,对其进行正则处理
+        let addressStr = $(e).find('address').text().trim().replace(/\n/, ''); // 对房屋的地址信息进行正则处理
+        let area = addressStr.match(/(^[^ ]*)|( .*$)/g)[1].trim().split(' '); // 对板块和具体地址信息进行分割处理
 
-        let fileName = price + '_' + location + '_' + area + '_' + title;
-        topicObj.fileName = fileName;
-        topicObj.topicUrl = topicUrl;
+        topicObj.topicUrl = $(e).find('h3').find('a').attr('href'); // 房屋的详细信息
+        topicObj.title = $(e).find('h3').find('a').attr('title'); // 房屋的标题信息
+        topicObj.layout = info[0]; // 获取房型
+        topicObj.acreage = info[1].replace('平米', ''); // 获取面积
+        topicObj.floor = info[2]; // 获取楼层
+        topicObj.village = addressStr.match(/(^[^ ]*)|( .*$)/g)[0].trim(); // 获得小区名字
+        topicObj.plate = area[0];
+        topicObj.address = area[1];
+        topicObj.price = $(e).find('.zu-side').find('strong').text().trim();
+        topicObj.type = $(e).find('.cls-1').text().trim();
+        topicObj.orientations = $(e).find('.cls-2').text().trim();
+        topicObj.metro = $(e).find('.cls-3').text().trim();
+
         topicArray.push(topicObj);
-        if (!fs.existsSync('./rent_image/' + fileName)) {
-            fs.mkdirSync('./rent_image/' + fileName);
-        }
-
-        console.log('=============== page ' + pageIndex + ' end =============');
-        // cb(null, 'page ' + pageIndex);
-        pageIndex++;
       });
+      cb(null, pageIndex + '============完成');
+      pageIndex++;
     });
   },(err, result) => {
       if (err) throw err;
-      console.log(topicArray.length);
-      console.log(result + ' 完成');
-      console.log('\n> 1 saveAllPage end');
+      let connection = mysql.createConnection({     
+        host     : 'localhost',       
+        user     : 'root',              
+        password : 'momo',       
+        port: '3306',                   
+        database: 'roomchart', 
+      });
+ 
+      connection.connect(); 
+      let sql = 'INSERT IGNORE INTO tenement(url,title,layout,acreage,floor,village,plate,address,price,type,orientations,metro) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)';
 
+      topicArray.forEach(topicObj => {
+        connection.query(sql, [
+            topicObj.topicUrl,
+            topicObj.title,
+            topicObj.layout,
+            Number(topicObj.acreage),
+            topicObj.floor,
+            topicObj.village,
+            topicObj.plate,
+            topicObj.address,
+            Number(topicObj.price),
+            topicObj.type === '整租' ? 1 : 0,
+            topicObj.orientations,
+            topicObj.metro ? topicObj.metro : '无'
+          ],
+          function (err, result) {
+            if(err){
+             console.log('[INSERT ERROR] - ',err.message);
+             return;
+            }        
+             
+             console.log('--------------------------INSERT----------------------------');
+             console.log('INSERT ID:',result);        
+             console.log('-----------------------------------------------------------------\n\n');  
+        });
+      });
       if (callback) {
-        callback(null, 'task 1 saveAllPage');
+        callback(null, '基本信息分页页面完成');
       }
   });
 }

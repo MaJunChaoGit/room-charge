@@ -19,6 +19,7 @@
   "devDependencies": {
     "async": "^2.6.1",
     "cheerio": "^1.0.0-rc.2",
+    "mysql": "^2.16.0",
     "request": "^2.88.0"
   }
 }
